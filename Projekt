@@ -1,0 +1,445 @@
+libname DANE "/home/u64049798/dane_projekt";
+
+*DEFAULT;
+DATA DANE.LOAN_default;
+	SET DANE.LOAN;
+	IF status IN('A','C') then default = 0;
+	ELSE IF status IN('B','D') then default = 1;
+	KEEP account_id default;
+RUN;
+
+*X1 - liczba lat od utworzenia konta;
+DATA DANE.X1;
+	SET DANE.ACCOUNT;
+	years_since_creation = year(today()) - year(date);
+	KEEP account_id years_since_creation;
+RUN;
+ 
+*X2 - kwartal zalozenia konta;
+DATA DANE.X2;
+	SET DANE.ACCOUNT;
+	quarter = qtr(date);
+	KEEP account_id quarter; 
+RUN;
+
+*X3 - miejsce przypisane do konta;
+DATA DANE.X3;
+	SET DANE.ACCOUNT;
+	location = district_id;
+	KEEP account_id location;
+RUN;
+
+*X4 - wiek klienta;
+DATA DANE.X4;
+	SET DANE.CLIENT;
+	length year_of_birth 8.;
+	year_of_birth = input(substr(put(birth_number, 8.), 3, 2), 2.);
+	IF year_of_birth > 25 THEN year_of_birth = 1900 + year_of_birth;
+	ELSE year_of_birth = 2000 + year_of_birth;
+	age = year(today()) - year_of_birth;
+	KEEP client_id age;
+RUN;
+
+DATA DANE.X4;
+	MERGE DANE.X4 DANE.DISP;
+	BY client_id;
+	IF type = "OWNER" THEN output;
+	KEEP account_id age;
+RUN;
+
+*X5 - plec klienta (0 - f, 1 - m);
+DATA DANE.X5;
+	SET DANE.CLIENT;
+	gender = substr(put(birth_number,8.), 3, 2);
+	IF gender > 50 THEN gender = 0;
+	ELSE gender = 1;
+	KEEP client_id gender;
+RUN;
+
+DATA DANE.X5;
+	MERGE DANE.X5 DANE.DISP;
+	BY client_id;
+	IF type = "OWNER" THEN output;
+	KEEP account_id gender;
+RUN;
+
+*X6 - typ karty;
+DATA DANE.X6;
+	SET DANE.CARD;
+	card_type = type;
+	KEEP card_type disp_id;
+RUN;
+
+DATA DANE.X6;
+	MERGE DANE.X6 DANE.DISP;
+	IF type = "OWNER" THEN output;
+	KEEP account_id card_type;
+RUN;
+
+*X7 - rok wydania karty;
+DATA DANE.X7;
+	SET DANE.CARD;
+	card_issued_year = input(substr(put(issued, 8.), 3, 2), 2.);
+	IF card_issued_year > 25 THEN card_issued_year = 1900 + card_issued_year;
+	ELSE card_issued_year = 2000 + card_issued_year;
+	KEEP card_id card_issued_year;
+RUN;
+
+DATA DANE.X7;
+	MERGE DANE.X7 DANE.DISP;
+	IF type = "OWNER" THEN output;
+	KEEP account_id card_issued_year;
+RUN;
+
+*X8 - liczba transakcji;
+PROC SORT data = DANE.TRANS out = DANE.TRANS;
+	BY account_id amount;
+RUN; 
+
+DATA DANE.X8;
+	SET DANE.TRANS;
+	BY account_id;
+	IF FIRST.account_id THEN count_trans = 0;
+	count_trans + 1;
+	IF LAST.account_id THEN output;
+	KEEP account_id count_trans;
+RUN;
+
+*X9 - suma transakcji;
+DATA DANE.X9;
+	SET DANE.TRANS;
+	BY account_id;
+	IF FIRST.account_id THEN sum_trans = 0;
+	sum_trans + amount;
+	IF LAST.account_id THEN output;
+	KEEP account_id sum_trans;
+RUN;
+
+*X10 - srednia transakcji;
+DATA DANE.X10;
+	MERGE DANE.X8 DANE.X9;
+	BY account_id;
+	avg_trans = sum_trans / count_trans;
+	KEEP account_id avg_trans;
+RUN;
+
+*X11 - maksymalna kwota transakcji;
+DATA DANE.X11;
+	SET DANE.TRANS;
+	BY account_id;
+	IF LAST.account_id THEN output;
+	KEEP account_id amount; 
+RUN;
+
+*X12 - minimalna kwota transakcji;
+DATA DANE.X12;
+	SET DANE.TRANS;
+	BY account_id;
+	IF FIRST.account_id THEN output;
+	KEEP account_id amount; 
+RUN;
+
+*X13 - poczatkowy stan konta;
+PROC SORT data = DANE.TRANS out = DANE.TRANS;
+	BY account_id date;
+RUN;
+
+DATA DANE.X13;
+	SET DANE.TRANS;
+	BY account_id;
+	IF FIRST.account_id THEN output;
+	KEEP account_id balance;
+RUN;
+
+*X14 - koncowy stan konta;
+DATA DANE.X14;
+	SET DANE.TRANS;
+	BY account_id;
+	IF LAST.account_id THEN output;
+	KEEP account_id balance;
+RUN;
+
+*X15 - liczba typow transakcji;
+PROC SQL;
+	CREATE TABLE DANE.X15 AS
+	SELECT account_id, COUNT(distinct type) AS trans_type_count 
+	FROM DANE.TRANS
+	GROUP BY account_id;
+QUIT;
+
+PROC SORT data = DANE.LOAN out = DANE.LOAN;
+	BY account_id;
+RUN;
+
+*X16 - kwota pozyczki;
+DATA DANE.X16;
+	SET DANE.LOAN;
+	loan_amount = amount;
+	KEEP account_id loan_amount;
+RUN;
+
+*X17 - dlugosc pozyczki w miesiacach;
+DATA DANE.X17;
+	SET DANE.LOAN;
+	loan_duration = duration;
+	KEEP account_id loan_duration;
+RUN;
+
+*X18 - miesieczna rata;
+DATA DANE.X18;
+	SET DANE.LOAN;
+	monthly_payment = payments;
+	KEEP account_id monthly_payment;
+RUN;
+
+*X19 - typ dyspozycji - czy wlasciciel?;
+PROC SORT data = DANE.DISP out = DANE.DISP;
+	BY client_id;
+RUN;
+
+DATA DANE.X19;
+	SET DANE.DISP;
+	BY account_id;
+	IF type = 'OWNER' THEN if_owner = 1;
+	ELSE if_owner = 0;
+	KEEP client_id account_id f_owner;
+RUN;
+
+*X20 - status pozyczki;
+DATA DANE.X20;
+	SET DANE.DISTRICT;
+	district_id = A1;
+	avg_salary = A11;
+	KEEP district_id avg_salary;
+RUN;
+
+DATA DANE.X20;
+	MERGE DANE.X20 DANE.ACCOUNT;
+	BY district_id;
+	KEEP account_id avg_salary;
+RUN;
+
+*X21 - liczba mieszkancow;
+DATA DANE.X21;
+	SET DANE.DISTRICT;
+	population = A4;
+	district_id = A1;
+	KEEP district_id population;
+RUN;
+
+PROC SORT data=DANE.ACCOUNT out=DANE.ACCOUNT;
+	BY district_id;
+RUN;
+
+DATA DANE.X21;
+	MERGE DANE.X21 DANE.ACCOUNT;
+	BY district_id;
+	KEEP account_id population;
+RUN;
+
+*X22 - liczba miast;
+DATA DANE.X22;
+	SET DANE.DISTRICT;
+	cities = A9;
+	district_id = A1;
+	KEEP district_id cities;
+RUN;
+
+DATA DANE.X22;
+	MERGE DANE.X22 DANE.ACCOUNT;
+	BY district_id;
+	KEEP account_id cities;
+RUN;
+
+*X23 - liczba popelnionych przestepstw;
+DATA DANE.X23;
+	SET DANE.DISTRICT;
+	crimes = A15;
+	district_id = A1;
+	KEEP district_id crimes;
+RUN;
+
+DATA DANE.X23;
+	MERGE DANE.X23 DANE.ACCOUNT;
+	BY district_id;
+	KEEP account_id crimes;
+RUN;
+
+*X24 - liczba wplat;
+DATA DANE.X24;
+	SET DANE.TRANS;
+	IF type = "PRIJEM" THEN output;
+RUN;
+
+DATA DANE.X24;
+	SET DANE.X24;
+	BY account_id;
+	IF FIRST.account_id THEN licznik_wpl = 0;
+	licznik_wpl + 1;
+	IF LAST.account_id THEN output;
+	KEEP account_id licznik_wpl;
+RUN;
+
+*X25 - liczba wyplat;
+DATA DANE.X25;
+	SET DANE.TRANS;
+	IF type = "VYDAJ" THEN output;
+RUN;
+
+DATA DANE.X25;
+	SET DANE.X25;
+	BY account_id;
+	IF FIRST.account_id THEN licznik_wyp = 0;
+	licznik_wyp + 1;
+	IF LAST.account_id THEN output;
+	KEEP account_id type licznik_wyp;
+RUN;
+
+*X26 - czy posiada ubezpieczenie?;
+DATA DANE.X26;
+	SET DANE.ORDER;
+	insurance = 1;
+	IF k_symbol = "POJISTNE" THEN output;
+	KEEP account_id insurance;
+RUN;
+
+*X27 - liczba posiadanych domow;
+PROC SQL;
+	CREATE TABLE DANE.X27 AS
+	SELECT account_id, COUNT(CASE WHEN k_symbol="SIPO" THEN account_id ELSE . END) AS houses
+	FROM DANE.ORDER
+	GROUP BY account_id;
+QUIT;
+
+*X28 - liczba posiadanych leasingow;
+PROC SQL;
+	CREATE TABLE DANE.X28 AS
+	SELECT account_id, COUNT(CASE WHEN k_symbol="LEASING" THEN account_id ELSE . END) AS leasings
+	FROM DANE.ORDER
+	GROUP BY account_id;
+QUIT;
+
+*X29 - wysokosc emerytury;
+DATA DANE.X29;
+	SET DANE.TRANS;
+	BY account_id;
+	IF k_symbol = "DUCHOD" THEN output;
+	KEEP account_id amount;
+RUN;
+
+DATA DANE.X29;
+	SET DANE.X29;
+	BY account_id;
+	pension = amount;
+	IF first.account_id THEN output;
+	KEEP account_id pension;
+RUN;
+
+*X30 - bezrobocie;
+DATA DANE.X30;
+	SET DANE.DISTRICT;
+	district_id = A1;
+	unemp_rate = A12;
+	KEEP district_id unemp_rate;
+RUN;
+
+DATA DANE.X30;
+	MERGE DANE.X30 DANE.ACCOUNT;
+	BY district_id;
+	KEEP account_id unemp_rate;
+RUN;
+
+*SORTOWANIE;
+PROC SORT data=DANE.X1 out=DANE.X1;
+	BY account_id;
+RUN;
+
+PROC SORT data=DANE.X2 out=DANE.X2;
+	BY account_id;
+RUN;
+
+PROC SORT data=DANE.X3 out=DANE.X3;
+	BY account_id;
+RUN;
+
+PROC SORT data=DANE.X20 out=DANE.X20;
+	BY account_id;
+RUN;
+
+PROC SORT data=DANE.X21 out=DANE.X21;
+	BY account_id;
+RUN;
+
+PROC SORT data=DANE.X22 out=DANE.X22;
+	BY account_id;
+RUN;
+
+PROC SORT data=DANE.X23 out=DANE.X23;
+	BY account_id;
+RUN;
+
+PROC SORT data=DANE.X30 out=DANE.X30;
+	BY account_id;
+RUN;
+
+*DATASET;
+DATA DANE.ALL;
+    MERGE 
+        DANE.X1
+        DANE.X2
+        DANE.X3
+        DANE.X4
+        DANE.X5
+        DANE.X6
+        DANE.X7
+        DANE.X8
+        DANE.X9
+        DANE.X10
+        DANE.X11
+        DANE.X12
+        DANE.X13
+        DANE.X14
+        DANE.X15
+        DANE.X16
+        DANE.X17
+        DANE.X18
+        DANE.X19
+        DANE.X20
+        DANE.X21
+        DANE.X22
+        DANE.X23
+        DANE.X24
+        DANE.X25
+        DANE.X26
+        DANE.X27
+        DANE.X28
+        DANE.X29
+        DANE.X30;
+    BY account_id;
+RUN;
+
+DATA DANE.ALL;
+	MERGE DANE.ALL DANE.LOAN_DEFAULT;
+	BY account_id;
+RUN;
+
+*FORMAT PUSTYCH DANYCH;
+DATA DANE.ALL;
+	SET DANE.ALL;
+	IF insurance = . THEN insurance = 0;
+	IF houses = . THEN houses = 0;
+	IF leasings = . THEN leasings = 0;
+	IF pension = . THEN pension = 0;
+	IF card_type = " " THEN card_type = "-";
+	IF card_issued_year = . THEN card_issued_year = 0;
+	IF loan_amount = . THEN loan_amount = 0;
+	IF loan_duration = . THEN loan_duration = 0;
+	IF monthly_payment = . THEN monthly_payment = 0;
+	IF status = " " THEN status = "-";
+RUN;
+
+DATA DANE.ALL;
+	SET DANE.ALL;
+	DROP account_id;
+	DROP client_id;
+RUN;
